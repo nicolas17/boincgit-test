@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <vector>
 #include <string.h>
@@ -41,6 +42,7 @@
 #include "parse.h"
 #include "network.h"
 #include "filesys.h"
+#include "md5_file.h"
 
 #include "file_names.h"
 #include "client_msgs.h"
@@ -63,13 +65,35 @@ GUI_RPC_CONN_SET::GUI_RPC_CONN_SET() {
 }
 
 int GUI_RPC_CONN_SET::get_password() {
+    FILE* f;
+    int retval;
+
     strcpy(password, "");
     if (boinc_file_exists(GUI_RPC_PASSWD_FILE)) {
-        FILE* f = fopen(GUI_RPC_PASSWD_FILE, "r");
+        f = fopen(GUI_RPC_PASSWD_FILE, "r");
         if (f) {
             fgets(password, 256, f);
             strip_whitespace(password);
             fclose(f);
+        }
+    } else {
+        // if no password file, make a random password
+        //
+        retval = make_random_string(password);
+        if (retval) {
+            gstate.host_info.make_random_string("guirpc", password);
+        }
+        f = fopen(GUI_RPC_PASSWD_FILE, "w");
+        if (f) {
+            fputs(password, f);
+            fclose(f);
+#ifndef _WIN32
+            // if someone can read the password,
+            // they can cause code to execute as this user.
+            // So better protect it.
+            //
+            chmod(GUI_RPC_PASSWD_FILE, S_IRUSR|S_IWUSR);
+#endif
         }
     }
     return 0;
@@ -229,6 +253,17 @@ void GUI_RPC_CONN_SET::got_select(FDSET_GROUP& fg) {
 
     if (FD_ISSET(lsock, &fg.read_fds)) {
         struct sockaddr_in addr;
+
+        // For unknown reasons, the FD_ISSET() above succeeds
+        // after a SIGTERM, SIGHUP, SIGINT or SIGQUIT is received,
+        // even if there is no data available on the socket.
+        // This causes the accept() call to block, preventing the main 
+        // loop from processing the exit request.
+        // This is a workaround for that problem.
+        //
+        if (gstate.requested_exit) {
+            return;
+        }
 
         boinc_socklen_t addr_len = sizeof(addr);
         sock = accept(lsock, (struct sockaddr*)&addr, &addr_len);
