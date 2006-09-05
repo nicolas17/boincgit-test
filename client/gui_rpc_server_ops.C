@@ -78,6 +78,21 @@ void GUI_RPC_CONN::handle_auth2(char* buf, MIOFILE& fout) {
     auth_needed = false;
 }
 
+// client passes its version, but ignore it for now
+//
+static void handle_exchange_versions(MIOFILE& fout) {
+    fout.printf(
+        "<server_version>\n"
+        "   <major>%d</major>\n"
+        "   <minor>%d</minor>\n"
+        "   <release>%d</release>\n"
+        "</server_version>\n",
+        BOINC_MAJOR_VERSION,
+        BOINC_MINOR_VERSION,
+        BOINC_RELEASE
+    );
+}
+
 static void handle_get_simple_gui_info(MIOFILE& fout) {
     unsigned int i;
     fout.printf("<simple_gui_info>\n");
@@ -229,7 +244,7 @@ static void handle_project_op(char* buf, MIOFILE& fout, const char* op) {
         gstate.request_schedule_cpus("project detached by user");
         gstate.request_work_fetch("project detached by user");
     } else if (!strcmp(op, "update")) {
-        p->sched_rpc_pending = REASON_USER_REQ;
+        p->sched_rpc_pending = RPC_REASON_USER_REQ;
         p->min_rpc_time = 0;
         gstate.request_work_fetch("project updated by user");
         gstate.set_client_state_dirty("project updated by user");
@@ -246,11 +261,11 @@ static void handle_project_op(char* buf, MIOFILE& fout, const char* op) {
 
 static void handle_set_run_mode(char* buf, MIOFILE& fout) {
     if (match_tag(buf, "<always")) {
-        gstate.user_run_request = USER_RUN_REQUEST_ALWAYS;
+        gstate.user_run_request = RUN_MODE_ALWAYS;
     } else if (match_tag(buf, "<never")) {
-        gstate.user_run_request = USER_RUN_REQUEST_NEVER;
+        gstate.user_run_request = RUN_MODE_NEVER;
     } else if (match_tag(buf, "<auto")) {
-        gstate.user_run_request = USER_RUN_REQUEST_AUTO;
+        gstate.user_run_request = RUN_MODE_AUTO;
     } else {
         fout.printf("<error>Missing mode</error>\n");
         return;
@@ -259,16 +274,17 @@ static void handle_set_run_mode(char* buf, MIOFILE& fout) {
     fout.printf("<success/>\n");
 }
 
+// DEPRECATED - REMOVE 12/06
 static void handle_get_run_mode(char* , MIOFILE& fout) {
     fout.printf("<run_mode>\n");
     switch (gstate.user_run_request) {
-    case USER_RUN_REQUEST_ALWAYS:
+    case RUN_MODE_ALWAYS:
         fout.printf("<always/>\n");
         break;
-    case USER_RUN_REQUEST_NEVER:
+    case RUN_MODE_NEVER:
         fout.printf("<never/>\n");
         break;
-    case USER_RUN_REQUEST_AUTO:
+    case RUN_MODE_AUTO:
         fout.printf("<auto/>\n");
         break;
     default:
@@ -279,11 +295,11 @@ static void handle_get_run_mode(char* , MIOFILE& fout) {
 
 static void handle_set_network_mode(char* buf, MIOFILE& fout) {
     if (match_tag(buf, "<always")) {
-        gstate.user_network_request = USER_RUN_REQUEST_ALWAYS;
+        gstate.user_network_request = RUN_MODE_ALWAYS;
     } else if (match_tag(buf, "<never")) {
-        gstate.user_network_request = USER_RUN_REQUEST_NEVER;
+        gstate.user_network_request = RUN_MODE_NEVER;
     } else if (match_tag(buf, "<auto")) {
-        gstate.user_network_request = USER_RUN_REQUEST_AUTO;
+        gstate.user_network_request = RUN_MODE_AUTO;
     } else {
         fout.printf("<error>Missing mode</error>\n");
         return;
@@ -292,16 +308,17 @@ static void handle_set_network_mode(char* buf, MIOFILE& fout) {
     fout.printf("<success/>\n");
 }
 
+// DEPRECATED - REMOVE 12/06
 static void handle_get_network_mode(char* , MIOFILE& fout) {
     fout.printf("<network_mode>\n");
     switch (gstate.user_network_request) {
-    case USER_RUN_REQUEST_ALWAYS:
+    case RUN_MODE_ALWAYS:
         fout.printf("<always/>\n");
         break;
-    case USER_RUN_REQUEST_NEVER:
+    case RUN_MODE_NEVER:
         fout.printf("<never/>\n");
         break;
-    case USER_RUN_REQUEST_AUTO:
+    case RUN_MODE_AUTO:
         fout.printf("<auto/>\n");
         break;
     default:
@@ -549,11 +566,15 @@ static void handle_get_cc_status(MIOFILE& fout) {
         "   <ams_password_error>%d</ams_password_error>\n"
         "   <task_suspend_reason>%d</task_suspend_reason>\n"
         "   <network_suspend_reason>%d</network_suspend_reason>\n"
+        "   <task_mode>%d</task_mode>\n"
+        "   <network_mode>%d</network_mode>\n"
         "</cc_status>\n",
         net_status.network_status(),
         gstate.acct_mgr_info.password_error?1:0,
         gstate.suspend_reason,
-        gstate.network_suspend_reason
+        gstate.network_suspend_reason,
+        gstate.user_run_request,
+        gstate.user_network_request
     );
 }
 
@@ -823,9 +844,6 @@ int GUI_RPC_CONN::handle_rpc() {
     MIOFILE mf;
     MFILE m;
     char* p;
-    int major_version;
-    int minor_version;
-    int release;
     mf.init_mfile(&m);
 
     // read the request message in one read()
@@ -846,21 +864,7 @@ int GUI_RPC_CONN::handle_rpc() {
         );
     }
 
-    // get client version.  not used for now
-    //
-    parse_int(request_msg, "<major_version>", major_version);
-    parse_int(request_msg, "<minor_version>", minor_version);
-    parse_int(request_msg, "<release>", release);
-
-    mf.printf(
-        "<boinc_gui_rpc_reply>\n"
-        "<major_version>%d</major_version>\n"
-        "<minor_version>%d</minor_version>\n"
-        "<release>%d</release>\n",
-        BOINC_MAJOR_VERSION,
-        BOINC_MINOR_VERSION,
-        BOINC_RELEASE
-    );
+    mf.printf("<boinc_gui_rpc_reply>\n");
     if (match_tag(request_msg, "<auth1")) {
         handle_auth1(mf);
     } else if (match_tag(request_msg, "<auth2")) {
@@ -871,6 +875,8 @@ int GUI_RPC_CONN::handle_rpc() {
 
     // operations that require authentication for non-local clients start here
 
+    } else if (match_tag(request_msg, "<exchange_versions")) {
+        handle_exchange_versions(mf);
     } else if (match_tag(request_msg, "<get_state")) {
         gstate.write_state_gui(mf);
     } else if (match_tag(request_msg, "<get_results")) {
