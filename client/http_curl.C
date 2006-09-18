@@ -55,8 +55,6 @@
 using std::min;
 using std::vector;
 
-#define NET_XFER_TIMEOUT    600
-
 static CURLM* g_curlMulti = NULL;
 
 static char g_user_agent_string[256] = {""};
@@ -188,6 +186,9 @@ int HTTP_OP::init_get(
     }
     http_op_type = HTTP_OP_GET;
     http_op_state = HTTP_STATE_CONNECTING;
+    if (log_flags.http_debug) {
+        msg_printf(0, MSG_INFO, "[http_debug] HTTP_OP::init_get(): %s", url);
+    }
     return HTTP_OP::libcurl_exec(url, NULL, out, off, false);
 }
 
@@ -212,13 +213,12 @@ int HTTP_OP::init_post(
     http_op_type = HTTP_OP_POST;
     http_op_state = HTTP_STATE_CONNECTING;
     if (log_flags.http_debug) {
-        msg_printf(0, MSG_INFO, "HTTP_OP::init_post(): %p\n", this);
+        msg_printf(0, MSG_INFO, "[http_debug] HTTP_OP::init_post(): %s", url);
     }
     return HTTP_OP::libcurl_exec(url, in, out, 0.0, true);  // note that no offset for this, for resumable uploads use post2!
 }
 
-// the following will do an HTTP GET or POST using libcurl,
-// polling at the net_xfer level
+// the following will do an HTTP GET or POST using libcurl
 //
 int HTTP_OP::libcurl_exec(
     const char* url, const char* in, const char* out, double offset, bool bPost
@@ -452,7 +452,7 @@ The checking this option controls is of the identity that the server claims. The
     }
 
     // turn on debug info if tracing enabled
-    if (log_flags.net_xfer_debug) {
+    if (log_flags.http_xfer_debug) {
         static int trace_count = 0;
         curlErr = curl_easy_setopt(curlEasy, CURLOPT_DEBUGFUNCTION, libcurl_debugfunction);
         curlErr = curl_easy_setopt(curlEasy, CURLOPT_DEBUGDATA, this );
@@ -468,8 +468,6 @@ The checking this option controls is of the identity that the server claims. The
         return ERR_HTTP_ERROR; // returns 0 (CURLM_OK) on successful handle creation
     }
 
-    // that should about do it, the net_xfer_set polling will actually start the transaction
-    // for this HTTP_OP
     return 0;
 }
 
@@ -495,7 +493,7 @@ int HTTP_OP::init_post2(
         }
         content_length = (int)size - (int)offset;
     }
-    content_length += strlen(req1);
+    content_length += (int)strlen(req1);
     http_op_type = HTTP_OP_POST2;
     http_op_state = HTTP_STATE_CONNECTING;
     return HTTP_OP::libcurl_exec(url, in, NULL, offset, true);
@@ -541,7 +539,7 @@ int HTTP_OP_SET::remove(HTTP_OP* p) {
 }
 
 int HTTP_OP_SET::nops() {
-    return http_ops.size();  
+    return (int)http_ops.size();  
 }
 
 
@@ -568,8 +566,8 @@ size_t libcurl_write(void *ptr, size_t size, size_t nmemb, HTTP_OP* phop) {
     //CMC TODO: maybe assert stRead == size*nmemb, add exception handling on phop members
     size_t stWrite = fwrite(ptr, size, nmemb, (FILE*) phop->fileOut);
 #if 0
-    if (log_flags.http_debug) {
-        msg_printf(NULL, MSG_INFO, "HTTP: wrote %d bytes", stWrite);
+    if (log_flags.http_xfer_debug) {
+        msg_printf(NULL, MSG_INFO, "[http_xfer_debug] HTTP: wrote %d bytes", stWrite);
     }
 #endif
     phop->bytes_xferred += (double)(stWrite);
@@ -606,7 +604,7 @@ size_t libcurl_read( void *ptr, size_t size, size_t nmemb, HTTP_OP* phop) {
             // this is the first time in this function for this phop)
             // or the last read didn't ask for the entire header
 
-            stRead = strlen(phop->req1) - phop->lSeek;  // how much of header left to read
+            stRead = (int)strlen(phop->req1) - phop->lSeek;  // how much of header left to read
 
             // only memcpy if request isn't out of bounds
             if (stRead < 0) {
@@ -644,7 +642,7 @@ size_t libcurl_read( void *ptr, size_t size, size_t nmemb, HTTP_OP* phop) {
             // content_length (which includes the strlen(req1) also)
             // note the use of stOld to get to the right position in case the header was read in above
             //ptr2 = (unsigned char*)ptr +(int)stOld;
-            stRead = fread(ptr, 1, stSend, phop->fileIn); 
+            stRead = (int)fread(ptr, 1, stSend, phop->fileIn); 
         }    
         phop->lSeek += (long) stRead;  // increment lSeek to new position
         phop->bytes_xferred += (double)(stRead);
@@ -682,7 +680,7 @@ int libcurl_debugfunction(
     case CURLINFO_TEXT:
         if (log_flags.http_debug) {
             msg_printf(0, MSG_INFO,
-                "[ID#%i] info: %s\n", phop->trace_id, data
+                "[http_debug] [ID#%i] info: %s\n", phop->trace_id, data
             );
         }
         return 0;
@@ -702,7 +700,7 @@ int libcurl_debugfunction(
     buf[mysize]='\0';
     if (log_flags.http_debug) {
         msg_printf(0, MSG_INFO,
-            "%s %s\n", hdr, buf
+            "[http_debug] %s %s\n", hdr, buf
         );
     }
     return 0;
@@ -817,7 +815,7 @@ void HTTP_OP::reset() {
     want_upload = false;
     fileIn = NULL;
     fileOut = NULL;
-    error = 0;
+    connect_error = 0;
     bytes_xferred = 0;
     xfer_speed = 0;
     bSentHeader = false;
@@ -927,7 +925,7 @@ void HTTP_OP_SET::got_select(FDSET_GROUP&, double timeout) {
         // included with Mac OS X 10.3.9
         //
         curlErr = curl_easy_getinfo(hop->curlEasy, 
-            (CURLINFO)(CURLINFO_LONG+25) /*CURLINFO_OS_ERRNO*/, &hop->error
+            (CURLINFO)(CURLINFO_LONG+25) /*CURLINFO_OS_ERRNO*/, &hop->connect_error
         );
 
         // update byte counts and transfer speed
@@ -965,18 +963,37 @@ void HTTP_OP_SET::got_select(FDSET_GROUP&, double timeout) {
             } else {
                 // Got a response from server but its not OK or CONTINUE,
                 // so save response with error message to display later.
-                hop->http_op_retval = hop->response;
+                //
                 if (hop->response >= 400) {
                     strcpy(hop->error_msg, boincerror(hop->response));
                 } else {
                     sprintf(hop->error_msg, "HTTP error %d", hop->response);
                 }
+                switch (hop->response) {
+                case HTTP_STATUS_NOT_FOUND:
+                    hop->http_op_retval = ERR_FILE_NOT_FOUND;
+                    break;
+                default:
+                    hop->http_op_retval = ERR_HTTP_ERROR;
+                }
             }
             net_status.need_physical_connection = false;
         } else {
             strcpy(hop->error_msg, curl_easy_strerror(hop->CurlResult));
-            hop->http_op_retval = ERR_HTTP_ERROR;
+            switch(hop->CurlResult) {
+            case CURLE_COULDNT_RESOLVE_HOST:
+                hop->http_op_retval = ERR_GETHOSTBYNAME;
+                break;
+            case CURLE_COULDNT_CONNECT:
+                hop->http_op_retval = ERR_CONNECT;
+                break;
+            default:
+                hop->http_op_retval = ERR_HTTP_ERROR;
+            }
             net_status.got_http_error();
+			if (log_flags.http_debug) {
+				msg_printf(NULL, MSG_ERROR, "[http_debug] HTTP error: %s", hop->error_msg);
+			}
         }
 
         if (!hop->http_op_retval && hop->http_op_type == HTTP_OP_POST2) {
@@ -1031,14 +1048,5 @@ void HTTP_OP::update_speed() {
         xfer_speed = bytes_xferred / delta_t;
     }
 }
-
-void HTTP_OP::got_error() {
-    // TODO: which socket??
-    error = ERR_IO;
-    if (log_flags.net_xfer_debug) {
-        msg_printf(0, MSG_INFO, "IO error on socket");
-    }
-}
-
 
 const char *BOINC_RCSID_57f273bb60 = "$Id$";
