@@ -13307,3 +13307,41 @@ Charlie 11 Dec 2006
     mac_build/
         boinc.xcodeproj/
             project.pbxproj
+
+Rom    12 Dec 2006 (Forked from HEAD)
+    - Branch boinc_core_release_5_8 created for the BOINC 5.8 client release.
+
+Rom    13 Dec 2006
+    - Undo the Auto-Update code David checked in on the 11th.
+    
+    client/
+        client_state.C,h
+        client_types.C
+        cs_scheduler.C
+        cs_statefile.C
+        file_names.C,h
+        scheduler_op.C,h
+
+Rom    13 Dec 2006
+    - Tag for 5.8.0 release, all platforms
+      boinc_core_release_5_8_0
+
+Charlie 13 Dec 2006
+    - MGR: Fix Compiler warnings.
+    - Mac: Undo the XCode project changes checked in on the 11th.
+    - Mac: Add user preferences file to list of BOINC files in 
+        documentation.
+    - Mac: remove WCG skin from Mac installer (undo change of 30 Nov.)
+    
+    clientgui/
+        ViewStatistics.cpp
+    doc/
+        mac_advanced.php
+        release_notes.php
+    mac_build/
+        boinc.xcodeproj/
+            project.pbxproj
+    mac_installer/
+        release_boinc.sh
+        GR-ReadMe.rtf
+        ReadMe.rtf
