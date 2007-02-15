@@ -87,6 +87,15 @@ int procinfo_setup(vector<PROCINFO>& pi) {
     if (fd[0] == 0) {
         // Launch AppStats helper application with a bidirectional pipe
 RELAUNCH:
+        // If we are relaunching, close our open file decriptors
+        if (fd[0] != 0)
+            close(fd[0]);
+        fd[0] = 0;
+        
+        if (fd[1] != 0)
+            close(fd[1]);
+        fd[1] = 0;
+
         if (failed_retries > 4) // Give up after failures on 5 consecutive calls 
             return ERR_EXEC;    //  of procinfo_setup()
             
@@ -200,7 +209,7 @@ static int bidirectional_popen(char *path, int *fd) {
         appname = path;
 
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fd) < 0) {			/* only need a single stream pipe */
-        msg_printf(NULL, MSG_ERROR, "%s: pipe error %d: %s\n", appname, errno, strerror(errno));
+        msg_printf(NULL, MSG_INTERNAL_ERROR, "%s: pipe error %d: %s\n", appname, errno, strerror(errno));
         return ERR_SOCKET;
     }
     
@@ -209,7 +218,7 @@ static int bidirectional_popen(char *path, int *fd) {
         close(fd[1]);
         fd[0] = 0;
         fd[1] = 0;
-        msg_printf(NULL, MSG_ERROR, "%s: fork error\n", appname);
+        msg_printf(NULL, MSG_INTERNAL_ERROR, "%s: fork error\n", appname);
         return ERR_FORK;
     }
     else if (pid > 0) {							/* parent */
