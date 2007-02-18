@@ -78,6 +78,7 @@
 #define FP_END      22
 #define INT_START   37
 #define INT_END     57
+#define OVERALL_END 60
 
 #define BM_FP_INIT  0
 #define BM_FP       1
@@ -97,6 +98,8 @@ struct BENCHMARK_DESC {
     HOST_INFO host_info;
     bool done;
     bool error;
+    double int_loops;
+    double int_time;
 #ifdef _WIN32
     HANDLE handle;
     DWORD pid;
@@ -142,17 +145,19 @@ bool benchmark_time_to_stop(int which) {
 //
 int cpu_benchmarks(BENCHMARK_DESC* bdp) {
     HOST_INFO host_info;
-    double x, y;
+    double vax_mips, int_loops, int_time;
 
     host_info.clear_host_info();
     whetstone(host_info.p_fpops);
-    dhrystone(x, y);
-    host_info.p_iops = y*1e6;
+    dhrystone(vax_mips, int_loops, int_time);
+    host_info.p_iops = vax_mips*1e6;
     host_info.p_membw = 1e9;
     host_info.m_cache = 1e6;    // TODO: measure the cache
 
 #ifdef _WIN32
     bdp->host_info = host_info;
+    bdp->int_loops = int_loops;
+    bdp->int_time = int_time;
 #else
     FILE* finfo;
     finfo = boinc_fopen(bdp->filename, "w");
@@ -180,14 +185,15 @@ void CLIENT_STATE::start_cpu_benchmarks() {
     }
 
     if (skip_cpu_benchmarks) {
-        if (log_flags.measurement_debug) {
+        if (log_flags.benchmark_debug) {
             msg_printf(0, MSG_INFO,
-                "[measurement_debug] CLIENT_STATE::cpu_benchmarks(): Skipping CPU benchmarks"
+                "[benchmark_debug] start_cpu_benchmarks(): Skipping CPU benchmarks"
             );
         }
 		cpu_benchmarks_set_defaults();
         return;
     }
+    msg_printf(NULL, MSG_INFO, "Running CPU benchmarks");
 
     cpu_benchmarks_pending = false;
 
@@ -199,9 +205,7 @@ void CLIENT_STATE::start_cpu_benchmarks() {
     if (benchmark_descs) {
         free(benchmark_descs);
     }
-    benchmark_descs = (BENCHMARK_DESC*)calloc(
-        ncpus, sizeof(BENCHMARK_DESC)
-    );
+    benchmark_descs = (BENCHMARK_DESC*)calloc(ncpus, sizeof(BENCHMARK_DESC));
     benchmarks_running = true;
 
     for (i=0; i<ncpus; i++) {
@@ -296,18 +300,20 @@ void CLIENT_STATE::abort_cpu_benchmarks() {
     }
 }
 
-// benchmark poll routine.  Called every second
-//
 bool CLIENT_STATE::cpu_benchmarks_poll() {
     int i;
+    static double last_time = 0;
     if (!benchmarks_running) return false;
+
+    if (now < last_time + 1) return false;
+    last_time = now;
 
     active_tasks.send_heartbeats();
 
     // if active tasks don't quit after 10 sec, give up on benchmark
     //
     if (now >= (cpu_benchmarks_start + 10.0) && active_tasks.is_task_executing()) {
-        msg_printf(NULL, MSG_ERROR,
+        msg_printf(NULL, MSG_INTERNAL_ERROR,
             "Failed to stop applications; aborting CPU benchmarks"
         );
         host_info.p_calculated = now;
@@ -323,39 +329,64 @@ bool CLIENT_STATE::cpu_benchmarks_poll() {
     switch (bm_state) {
     case BM_FP_INIT:
         if (now - cpu_benchmarks_start > FP_START) {
-            msg_printf(NULL, MSG_INFO, "Running CPU benchmarks");
+            if (log_flags.benchmark_debug) {
+                msg_printf(0, MSG_INFO,
+                    "[benchmark_debug] Starting floating-point benchmark"
+                );
+            }
             make_benchmark_file(BM_TYPE_FP);
             bm_state = BM_FP;
         }
         return false;
     case BM_FP:
         if (now - cpu_benchmarks_start > FP_END) {
+            if (log_flags.benchmark_debug) {
+                msg_printf(0, MSG_INFO,
+                    "[benchmark_debug] Ended floating-point benchmark"
+                );
+            }
             remove_benchmark_file(BM_TYPE_FP);
             bm_state = BM_INT_INIT;
         }
         return false;
     case BM_INT_INIT:
         if (now - cpu_benchmarks_start > INT_START) {
+            if (log_flags.benchmark_debug) {
+                msg_printf(0, MSG_INFO,
+                    "[benchmark_debug] Starting integer benchmark"
+                );
+            }
             make_benchmark_file(BM_TYPE_INT);
             bm_state = BM_INT;
         }
         return false;
     case BM_INT:
         if (now - cpu_benchmarks_start > INT_END) {
+            if (log_flags.benchmark_debug) {
+                msg_printf(0, MSG_INFO,
+                    "[benchmark_debug] Ended integer benchmark"
+                );
+            }
             remove_benchmark_file(BM_TYPE_INT);
             bm_state = BM_SLEEP;
         }
         return false;
     case BM_SLEEP:
-        boinc_sleep(2.0);
-        bm_state = BM_DONE;
+        if (now - cpu_benchmarks_start > OVERALL_END) {
+            if (log_flags.benchmark_debug) {
+                msg_printf(0, MSG_INFO,
+                    "[benchmark_debug] Ended benchmark"
+                );
+            }
+            bm_state = BM_DONE;
+        }
         return false;
     }
 
     // check for timeout
     //
     if (now > cpu_benchmarks_start + MAX_CPU_BENCHMARKS_SECONDS) {
-        msg_printf(NULL, MSG_ERROR,
+        msg_printf(NULL, MSG_INTERNAL_ERROR,
             "CPU benchmarks timed out, using default values"
         );
         abort_cpu_benchmarks();
@@ -371,14 +402,24 @@ bool CLIENT_STATE::cpu_benchmarks_poll() {
             check_benchmark(benchmark_descs[i]);
         }
         if (benchmark_descs[i].done) {
-            ndone ++;
+            if (log_flags.benchmark_debug) {
+                msg_printf(0, MSG_INFO,
+                    "[benchmark_debug] CPU %d has finished", i
+                );
+            }
+            ndone++;
             if (benchmark_descs[i].error) had_error = true;
         }
+    }
+    if (log_flags.benchmark_debug) {
+        msg_printf(0, MSG_INFO,
+            "[benchmark_debug] %d out of %d CPUs done", ndone, ncpus
+        );
     }
     if (ndone == ncpus) {
         double old_p_fpops = host_info.p_fpops;
         if (had_error) {
-            msg_printf(NULL, MSG_ERROR, "CPU benchmarks error");
+            msg_printf(NULL, MSG_INTERNAL_ERROR, "CPU benchmarks error");
 			cpu_benchmarks_set_defaults();
         } else {
             double p_fpops = 0;
@@ -386,6 +427,15 @@ bool CLIENT_STATE::cpu_benchmarks_poll() {
             double p_membw = 0;
             double m_cache = 0;
             for (i=0; i<ncpus; i++) {
+                if (log_flags.benchmark_debug) {
+                    msg_printf(0, MSG_INFO,
+                        "[benchmark_debug] CPU %d: fp %f int %f intloops %f inttime %f",
+                        i, benchmark_descs[i].host_info.p_fpops,
+                        benchmark_descs[i].host_info.p_iops,
+                        benchmark_descs[i].int_loops,
+                        benchmark_descs[i].int_time
+                    );
+                }
                 p_fpops += benchmark_descs[i].host_info.p_fpops;
                 p_iops += benchmark_descs[i].host_info.p_iops;
                 p_membw += benchmark_descs[i].host_info.p_membw;
@@ -398,12 +448,12 @@ bool CLIENT_STATE::cpu_benchmarks_poll() {
             if (p_fpops > 0) {
                 host_info.p_fpops = p_fpops;
             } else {
-                msg_printf(NULL, MSG_ERROR, "Benchmark: FP unexpectedly zero; ignoring");
+                msg_printf(NULL, MSG_INTERNAL_ERROR, "Benchmark: FP unexpectedly zero; ignoring");
             }
             if (p_iops > 0) {
                 host_info.p_iops = p_iops;
             } else {
-                msg_printf(NULL, MSG_ERROR, "Benchmark: int unexpectedly zero; ignoring");
+                msg_printf(NULL, MSG_INTERNAL_ERROR, "Benchmark: int unexpectedly zero; ignoring");
             }
             host_info.p_membw = p_membw;
             host_info.m_cache = m_cache;
