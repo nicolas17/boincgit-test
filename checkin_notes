@@ -1,0 +1,753 @@
+Charlie  6 Jan 2010
+    - client: Eliminate x86_64 Mac client; i386 client determines if 
+        system supports x86_64 applications and sets HOSTTYPE and 
+        platform accordingly.  This allows us to link with the 32-bit 
+        CUDA libraries.  The one other effect is that the benchmarks 
+        are run in 32-bit mode even on a 64-bit capable Mac.
+    - client: Async get_state RPC was not updating state.have_ati field.
+    - MGR: Rebuild Advanced Menu and Taskbar Menu after connecting to 
+        client, so GPU Activity and Snooze GPU items are displayed if 
+        needed.
+        
+    client/
+        cs_cmdline.cpp
+        cs_platforms.cpp
+    clientgui/
+        AdvancedFrame.cpp
+        AsyncRPC.cpp
+        sg_BoincSimpleGUI.cpp
+        mac/
+            config.h
+     mac_build/
+        boinc.xcodeproj/
+            project.pbxproj
+
+Charlie  7 Jan 2010
+    - Mac: Fix bug in backtrace code which showed up only under OS 10.6.
+    - Mac installer: Add CUDA information to Mac ReadMe files.
+
+    lib/
+        mac/
+            mac_backtrace.C
+    mac_installer/
+        GR-ReadMe.rtf
+        PTP-ReadMe.rtf
+        ReadMe.rtf
+
+Charlie  7 Jan 2010
+    - Tag for 6.10.26 release (changes from 6.10.25 are Mac only.)
+      boinc_core_release_6_10_26
+
+    /
+        configure.ac
+        version.h
+        
+David  18 Dec 2009
+    - client (Mac): it's DYLD_LIBRARY_PATH, not DYLIB_LIBRARY_PATH
+
+    client/
+        app_start.cpp
+
+David  3 Jan 2010
+    - client: ATI available RAM wasn't being detected correctly
+
+    client/
+        coproc_detect.cpp
+
+Charlie  8 Jan 2010
+    - Tag for 6.10.27 release (changes from 6.10.25 are Mac only.)
+      boinc_core_release_6_10_27
+
+    /
+        configure.ac
+        version.h
+        
+Charlie  12 Jan 2010
+    - client sandbox: set LD_LIBRARY_PATH and DYLD_LIBRARY_PATH in switcher.
+        For unknown reasons, the these 2 environment variables are not 
+        passed in to switcher, though all other environment variables do get 
+        propagated.  
+
+    client/
+        switcher.cpp
+     mac_build/
+        boinc.xcodeproj/
+            project.pbxproj
+
+Charlie  12 Jan 2010
+    - Tag for 6.10.28 release (changes from 6.10.25 are Mac only.)
+      boinc_core_release_6_10_28
+
+    /
+        configure.ac
+        version.h
+        
+David  9 Jan 2010
+    - client (Mac): append /usr/local/cuda/lib to LD_LIBRARY_PATH
+        and DYLD_LIBRARY_PATH
+
+    client/
+        app_start.cpp
+
+Charlie  13 Jan 2010
+    - MGR: The fix of 14 Oct 2009 for "initial first connection problem on 
+        startup" caused the Tools menu to be incorrect when switching from 
+        Simple to Advanced View if using an account manager: solve this by 
+        calling pDoc->IsConnected() in CAdvancedFrame::CreateMenu() instead 
+        of using bool argument bRPCsSafe.  Remove unused bRPCsSafe arg from 
+        CAdvancedFrame::CreateNotebook(), CAdvancedFrame::CreateStatusbar(). 
+        
+    clientgui/
+        AdvancedFrame.cpp, .h
+
+David  17 Dec 2009
+    - client: show <cpu_sched> message when suspend/resume GPU activity
+
+    client/
+        cs_prefs.cpp
+
+David  17 Dec 2009
+	- client: there are oddball cases where the client has an app for which
+		avg_ncpus > ncpus.   Allow such jobs to run; otherwise nothing runs.
+
+	client/
+		cpu_sched.cpp
+
+David  17 Dec 2009
+    - client: in computing "anticipated" STD, scale by ninstances
+        (from John McLeod)
+
+    client/
+        cpu_sched.cpp
+
+Rom    17 Dec 2009
+    - MGR: Deconflict menu item IDs.
+    
+    clientgui/
+        Events.h
+
+David  21 Dec 2009
+	- manager/client: show PID in task properties;
+		add PID to RESULT structure in GUI RPC
+
+	client/
+		app.cpp
+	clientgui/
+		DlgItemProperties.cpp
+	lib/
+		gui_rpc_client.h
+		gui_rpc_client_ops.cpp
+
+David  22 Dec 2009
+    - client: when parsing cc_config.xml,
+        clear vectors so we don't end up with duplicates
+
+    client/
+        log_flags.cpp
+
+David  24 Dec 2009
+    - client: divide LTD deltas by ninstances, same as for STD.
+        This is cosmetic - it won't affect work fetch,
+        but it will prevent LTD from changing faster than real time
+
+    client/
+        work_fetch.cpp
+
+David  24 Dec 2009
+    - client: add logic to work fetch so that each project
+        will have enough jobs to use its share of resource instances.
+        This avoids situations where e.g. on a 2-CPU system
+        a project has 75% resource share and 1 CPU job,
+        and its STD increases without bound.
+        
+        Did a general cleanup of the logic for computing
+        work request sizes (seconds and instances).
+
+    client/
+        work_fetch.cpp,h
+        rr_sim.cpp
+
+David  30 Dec 2009
+    - client: Unix: if can't create client lock file,
+        report ERR_OPEN rather than ERR_ALREADY_RUNNING
+        fixes #970
+
+    lib/
+        util.cpp
+        filesys.cpp
+
+David  3 Jan 2010
+    - client: ATI available RAM wasn't being detected correctly
+    
+    client/
+        coproc_detect.cpp
+
+David  4 Jan 2010
+    - client: fix format strings for ninstances (can be fraction now)
+
+    client/
+        scheduler_op.cpp
+        work_fetch.cpp
+
+David  5 Jan 2010
+    - client: scheduling problem:
+        - a project overestimates job FLOP counts
+        - the client starts jobs in EDF mode
+        - as job progresses and fraction done increases,
+            its completion time estimate decreases until
+            it's no longer a deadline miss.
+        - job gets preempted by other job from that project;
+            you end up with lots of partly completed jobs.
+        Solution (I hope): if an app version has running jobs,
+            compute a "temp DCF" for the app version,
+            which is the min of dynamic/static estimates for its jobs.
+            Apply this scaling factor to completion time estimates
+            for unstarted jobs in RR simulation
+    - client: the estimation of remaining time of running jobs was wrong
+        (how did this bug survive so long?)
+
+    client/
+        app.h
+        client_types.h
+        rr_sim.cpp
+        work_fetch.cpp
+
+David  6 Jan 2010
+    - client: bug in ACTIVE_TASK::est_dur()
+
+    client/
+        work_fetch.cpp
+
+David  7 Jan 2009
+	- client: work fetch fix: avoid sending null request in certain cases.
+
+	client/
+		work_fetch.cpp
+
+David  12 Jan 2010
+    - client: add <stderr_head> config option;
+        sends the first rather than last 64KB of stderr to server.
+        This doesn't belong here; this choice should come from the server.
+        I may take this out later.
+
+    client/
+        app_control.cpp
+        log_flags.cpp,h
+    lib/
+        util.cpp
+
+David  12 Jan 2010
+    - client: small tweak to work fetch:
+        if project has crazy DCF, don't automatically request 1 sec;
+        only request work if there's a shortfall.
+
+    client/
+        Makefile.am
+        work_fetch.cpp
+
+Rom    14 Jan 2010
+    - Tag for 6.10.29 release, all platforms
+      boinc_core_release_6_10_29
+
+    /
+        configure.ac
+        version.h
+
+Charlie  16 Jan 2010
+    - Mac Installer: fix bug launching client when configured as a service.
+    
+    mac_installer/
+        PostInstall.cpp
+
+Charlie  22 Jan 2010
+    Mac Sandbox: To keep authenticators private, make all .xml files readable 
+        only by user and group boinc_master; except ss_config.xml is world-
+        readable so screensaver coordinator can access it.  All other files 
+        except gui_rpc_auth.cfg are world-readable to allow access by 
+        screensavers. 
+
+    clientgui/
+        mac/
+            SetupSecurity.cpp
+    mac_build/
+        Mac_SA_Secure.sh
+
+Charlie  26 Jan 2010
+    - Mac Sandbox: The init_data.xml file in each slot directory also contains 
+        an authenticator; to keep these private, change ownership of the "slots" 
+        directory to boinc_master:boinc_project and eliminate read and execute 
+        permissions of this directory for "other".  For consistency, make the 
+        same changes to the "projects" directory.  The individual slot and 
+        project directories are still world-executable and they and their 
+        contents are still world-readable, so the Client can still read files 
+        created by project apps with ownership boinc_project:boinc_project.
+      - NOTE: I believe this should not cause any problems for either BOINC or 
+        project applications, but it needs to be tested thoroughly.
+
+    client/
+        check_security.cpp
+        file_names.cpp
+    clientgui/
+        mac/
+            SetupSecurity.cpp
+    doc/
+        sandbox.php
+    mac_build/
+        Mac_SA_Insecure.sh
+        Mac_SA_Secure.sh
+
+Charlie  27 Jan 2010
+    - MGR: Fix minor bugs in Mac accessibility reporting kAXWindowAttribute and 
+        kAXTopLevelUIElementAttribute.
+
+    clientgui/
+        mac/
+            MacAccessiblity.cpp
+
+Rom    27 Jan 2009
+    - MGR: Separators should appear between radio button groupings for cross-platform
+        compatibility.
+        
+    clientgui/
+        AdvancedFrame.cpp
+
+Rom    27 Jan 2010
+    - Tag for 6.10.30 release, all platforms
+      boinc_core_release_6_10_30
+
+    /
+        configure.ac
+        version.h
+
+Charlie  28 Jan 2010
+    - Mac Sandbox: SetupAuthorizationExecuteWithPrivileges() forks to run chmod and chown, 
+        leaving zombie processes which can exceed the system-imposed limit of processes 
+        MAXUPRC for a user.  Call waitpid() to clear these zombies.
+    - Mac Sandbox: fix comment in Mac_SA_Secure.sh script.
+
+    clientgui/
+        mac/
+            SetupSecurity.cpp
+    mac_build/
+        Mac_SA_Secure.sh
+
+Charlie  2 Feb 2010
+    - Mac Installer: update, fix bugs in script for building GridRepublic Installer. 
+
+    mac_installer/
+        make_GridRepublic.sh
+    
+David  15 Jan 2010
+    - client: tiny code shuffle
+
+    client/
+        work_fetch.cpp
+        cpu_sched.cpp
+
+David  18 Jan 2010
+    - API: fix crashing bug.  Don't memset(0) APP_INIT_DATA;
+        it contains HOST_INFO, which now contains COPROCS,
+        which has a vector.
+        Define a clear() for APP_INIT_DATA.
+
+    lib/
+        app_ipc.cpp,h
+
+David  18 Jan 2010
+	- client: initial checkin for "don't compute if CPU usage above X"
+
+	client/
+		app.cpp,h
+		coproc_detect.cpp
+		cs_prefs.cpp
+	lib/
+		common_defs.h
+		procinfo_win.cpp
+	win_build/
+		libboinc.vcproj
+
+David  18 Jan 2010
+    - client: finish the above.
+        Should add the Adv Prefs dialog as well.
+
+    client/
+        cs_prefs.cpp
+    lib/
+        prefs.cpp,h
+
+Rom    19 Jan 2010
+    - lib: Don't allow the diagnostics threads to be suspended, if a crash happens within
+        the remaining thread the process will deadlock.
+
+    lib/
+        diagnostics.h
+        diagnostics_win.cpp
+        win_util.cpp
+
+David  19 Jan 2010
+    - client simulator: further fiddling around.  Not done.
+
+    client/
+        sim.cpp
+        work_fetch.cpp
+        cpu_sched.cpp
+
+David  19 Jan 2010
+    - client simulator: done for now
+
+    client/
+        sim.cpp
+        rr_sim.cpp
+
+David  19 Jan 2010
+    - client: brute-force attempt at eliminating domino-effect preemption:
+        if job A is unstarted and EDF,
+        and there's a job B that is later in the list,
+        is started, has the same app version,
+        and has the same arrival time,
+        move A after B.
+    - client: remove the "temp_dcf" mechanism,
+        which had the same goal but didn't work.
+    - client: in computing overall debt for a project,
+        subtract a term that reflects pending work.
+        This should reduce repeated fetches from the same project.
+    - client simulator: tweaks
+
+    client/
+        client_types.h
+        cpu_sched.cpp
+        rr_sim.cpp
+        sim.cpp,h
+        sim_util.cpp
+        work_fetch.cpp,h
+
+David  22 Jan 2010
+    - client bug fixes
+
+    client/
+        app_start.cpp
+
+David  25 Jan 2010
+    - client: when launching app, delete init_data.xml using switcher
+        prior to trying to write it,
+        in case it's owned by another user (e.g., boinc_project)
+
+    client/
+        app_start.cpp
+
+David  27 Jan 2010
+    - client: fix small bug that could interfere with work fetch
+        on hosts with both NVIDIA and ATI GPU
+
+    client/
+        work_fetch.cpp
+
+David  27 Jan 2010
+	- client: fix work fetch bug that prevented getting work
+		from an overworked project,
+		even if idle instance or major shortfall.
+
+	client/
+		work_fetch.cpp,h
+
+David  27 Jan 2010
+    - client: remove debug msgs
+
+    client/
+        app.cpp
+
+David  28 Jan 2010
+    - client: if a project has zero resource share,
+        treat it as a "backup project":
+        fetch work from it only if there is an idle instance
+        and no other projects have work.
+
+    client/
+        acct_mgr.cpp
+        client_types.cpp,h
+        rr_sim.cpp
+        work_fetch.cpp
+
+David  28 Jan 2010
+	- client: fix my last checkin
+
+	client/
+		client_types.cpp
+		cs_statefile.cpp
+
+David  29 Jan 2010
+    - client: allow zero resource share
+
+    client/
+        work_fetch.cpp
+        makefile_sim
+
+Rom    2 Feb 2010
+    - Tag for 6.10.31 release, all platforms
+      boinc_core_release_6_10_31
+
+    /
+        configure.ac
+        version.h
+
+Rom    2 Feb 2010
+    - client: newer ATI drivers crash if struct_size isn't filled out
+        before the structure is used.
+        
+    client/
+        coproc_detect.cpp
+
+Rom    2 Feb 2010
+    - Tag for 6.10.32 release, all platforms
+      boinc_core_release_6_10_32
+
+    /
+        configure.ac
+        version.h
+
+Charlie  4 Feb 2010
+    - Mac Installer: when adding non-admin users to group boinc_master, also add 
+        them to group boinc_project; this fixes permissions error -1200 for non-
+        admin users; show "Please wait" alert if WaitPermissions takes > 15 seconds.
+
+    client/
+        check_security.cpp
+    mac_installer/
+        AddRemoveUser.cpp
+        PostInstall.cpp
+        WaitPermissions.cpp
+
+Charlie  5 Feb 2010
+    - Tag for 6.10.33 release (changes from 6.10.32 are Mac only.)
+      boinc_core_release_6_10_33
+
+    /
+        configure.ac
+        version.h
+
+Rom    5 Feb 2010
+    - WINSCR: cleanup configuration dialog text.
+    
+    clientscr/
+        boinc_ss.rc
+
+Charlie  8 Feb 2010
+    - Mac SS: change configuration dialog text to match new Windows wording.  
+    
+    clientscr/
+        res/
+            BOINCSaver.nib
+
+Charlie  10 Feb 2010
+    - Mac installer: If installing an acct_mgr_url.xml file, don't install it 
+        directly into the BOINC Data directory.  Instead, put it into the 
+        installer's resources and have the postinstall or postupgrade script 
+        copy it to the BOINC Data directory.  This fixes a problem which would 
+        happen if the user later ran the standard BOINC installer without an 
+        acct_mgr_url.xml file: the Apple installer would then delete the file, 
+        causing BOINC to detach from the account manager.
+    - Mac Installer: add .txt extension to copyright files in GUI installer extras.
+    
+    mac_installer/
+        make_GridRepublic.sh
+        make_ProgThruProc.sh
+        postinstall
+        postupgrade
+
+Charlie  10 Feb 2010
+    - Mac Installer: Fix receipt name for GridRepublic installer so we can remove it.
+    
+    mac_installer/
+        PostInstall.cpp
+
+David  1 Feb 2010
+    - graphics API: if font missing, find one that isn't (from Kevin)
+
+    api/
+        txf_util.cpp
+
+David  3 Feb 2010
+    - client: if GPU get available RAM fails, don't use the GPU
+
+    client/
+        client_types.cpp
+
+Rom    8 Feb 2010
+    - client: detect CPU information via the cpuid instruction instead of
+        the registry.  This change is only for Windows but I haven't tested
+        this with GCC.
+        
+    client/
+        hostinfo_win.cpp
+
+David  9 Feb 2010
+	- client: undo [17160].  <ncpus>0</ncpus> in cc_config.xml
+		no longer means simulate zero CPUs.
+		There are several places that divide by ncpus.
+		Zero CPUs doesn't make any sense anyway.
+
+	client/
+		cpu_sched.cpp
+		work_fetch.cpp
+
+Rom    9 Feb 2010
+    - client: some more CPU detection cleanup.
+    
+    client/
+        hostinfo_win.cpp
+
+David  11 Feb 2009
+    - client: if a project is anonymous platform and it has no
+        app versions that use a resource,
+        don't request work from it for that resource.
+
+    client/
+        work_fetch.cpp,h
+        client_state.cpp
+    html/inc/
+        prefs.inc
+
+David  14 Feb 2010
+    - client: include CPU usage of client in BOINC total.
+        Also include manager if its name includes "boinc"
+        (can't figure out another way)
+
+    lib/
+        procinfo*.cpp
+
+David  16 Feb 2010
+    - manager: first whack at "suspend if CPU load exceeds x" in dialog
+
+    clientgui/
+        DlgAdvPreferences*
+
+David  16 Feb 2010
+	- screensaver: fix bug where sometimes no tasks are shown;
+		change font sizes for max of 2 sizes at a time
+
+	clientscr/
+		ss_app.cpp
+
+David  18 Feb 2010
+    - client: don't accumulate LTD for projects w/ suspended jobs
+
+    client/
+        work_fetch.cpp
+
+David  18 Feb 2010
+	- API: in txfRenderString, replace non-ASCII chars with ?.
+		Otherwise it calls abort()!
+
+	api/
+		texfont.cpp
+
+David  18 Feb 2010
+	- client: fix bug in "suspend if CPU load too high" feature.
+		Forgot to convert between fraction and percentage
+
+	client/
+		app.cpp
+		cs_prefs.cpp
+		log_flags.cpp
+
+Rom    2 Feb 2010
+    - Tag for 6.10.34 release, all platforms
+      boinc_core_release_6_10_34
+
+    /
+        configure.ac
+        version.h
+
+Charlie  24 Feb 2010
+    - Mac Installer: add missing .txt extension to copyright files in 
+        installer build script.
+
+    mac_installer/
+        release_boinc.sh
+
+Charlie  25 Feb 2010
+    - MGR: Fix a long-standing bug that made sizers fail on Mac for Advanced 
+        Preferences dialog: I added bSizer1->Fit(this) to end of constructor. 
+        To work around this bug, the dialog had been made resizeable and the 
+        height and width were saved in the Manager settings.  But this meant 
+        that when we add an item to the dialog, it is too small until the 
+        user expands it.  And Modal dialogs like this should not be resizeable.
+        I also made the dialog no longer resizeable by the user.
+        Remove second "between" in "Switch between applications between every".
+        
+    clientgui/
+        DlgAdvPreferences.cpp
+        DlgAdvPreferencesBase.cpp, .h
+
+Rom    25 Feb 2010
+    - WIN: Add some missing CPU features to the feature list
+    - WIN: Make sure the Brand string for a CPU is printable. Older Intel
+        processors have some control characters.
+        
+    client/
+        hostinfo_win.cpp
+
+Rom    25 Feb 2010
+    - Tag for 6.10.35 release, all platforms
+      boinc_core_release_6_10_35
+
+    /
+        configure.ac
+        version.h
+
+Charlie  26 Feb 2010
+    - MGR: Save and restore height and width of Properties dialog; fix comments.
+
+    clientgui/
+        DlgAdvPreferences.cpp
+        DlgItemProperties.cpp, .h
+
+David  26 Feb 2009
+	- client: if suspend a file xfer, set upload_offset to -1;
+		that way it will query server for file length when it resumes,
+		rather than uploading from the beginning
+
+	client/
+		file_xfer.cpp
+		pers_file_xfer.cpp
+
+David  27 Feb 2009
+    - client: if have coproc jobs but coproc is missing,
+        skip those jobs in RR sim.
+        Otherwise we add stuff to uninitialized data structures,
+        and a crash can result.
+    - client: initialize the above data structures anyway
+
+    client/
+        work_fetch.cpp
+        rr_sim.cpp
+
+David  27 Feb 2009
+    - client: fix bug that interfered with work fetch
+        for particular resources in anonymous platform case.
+
+    client/
+        work_fetch.cpp
+
+Rom    1 Mar 2010
+    - Tag for 6.10.36 release, all platforms
+      boinc_core_release_6_10_36
+
+    /
+        configure.ac
+        version.h
+
+Rom    11 Mar 2010
+    - MGR: Prevent flicker and lack of display by using the regular tooltip
+        for the Project List control on Windows.
+        
+    clientgui/
+        ProjectListCtrl.cpp, .h
+
+Rom    11 Mar 2010
+    - Tag for 6.10.36 release, all platforms
+      boinc_core_release_6_10_37
+
+    /
+        configure.ac
+        version.h
